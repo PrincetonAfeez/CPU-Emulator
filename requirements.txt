@@ -1,0 +1,2 @@
+# Stdlib-only runtime. Install the package from the repo root:
+.
