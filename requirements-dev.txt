@@ -1,0 +1,6 @@
+# Development install (mirrors pyproject.toml [project.optional-dependencies].dev).
+# Prefer from repo root:
+#
+#   pip install -e ".[dev]"
+
+-e ".[dev]"
