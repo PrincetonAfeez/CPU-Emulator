@@ -6,6 +6,7 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from .constants import STACK_LIMIT
 from .display import FrameBuffer
 from .errors import InvalidOpcodeError, StackOverflowError, StackUnderflowError
 from .keyboard import Keypad
@@ -85,8 +86,10 @@ class CPU:
         elif h == 0x1:
             self.pc = nnn
         elif h == 0x2:
-            if len(self.stack) >= 16:
-                raise StackOverflowError(f"CALL at 0x{address:03X} exceeds 16 stack levels")
+            if len(self.stack) >= STACK_LIMIT:
+                raise StackOverflowError(
+                    f"CALL at 0x{address:03X} exceeds {STACK_LIMIT} stack levels"
+                )
             self.stack.append(self.pc)
             self.pc = nnn
         elif h == 0x3:

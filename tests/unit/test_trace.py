@@ -325,6 +325,8 @@ def test_verify_rejects_invalid_field_types(
             "field 'v' entries",
         ),
         (lambda record: record.__setitem__("stack", [0x1000]), "field 'stack' entries"),
+        (lambda record: record.__setitem__("stack", [0x200] * 17), "at most 16"),
+        (lambda record: record.__setitem__("stack", [0x200] * 100), "at most 16"),
         (lambda record: record.__setitem__("previous_hash", "0" * 63), "previous_hash"),
         (
             lambda record: record.__setitem__("previous_hash", "GG" + "0" * 62),
@@ -340,6 +342,42 @@ def test_verify_rejects_invalid_record_schema_values(
     path = _mutate_trace_record(tmp_path, mutate)
     with pytest.raises(TraceVerificationError, match=message):
         verify_trace(path)
+
+
+def _rehash_record(record: dict[str, object]) -> None:
+    record.pop("hash", None)
+    record["hash"] = hashlib.sha256(_canonical(record)).hexdigest()
+
+
+def test_verify_accepts_empty_stack(tmp_path: Path) -> None:
+    path = tmp_path / "trace.log"
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
+    writer.record(
+        0x200,
+        0x6001,
+        _trace_state(pc=0x200, cycles=0, stack=[]),
+        _trace_state(v=[1] + [0] * 15, stack=[]),
+    )
+    writer.close()
+    assert verify_trace(path)[0] == 1
+
+
+def test_verify_accepts_stack_at_limit(tmp_path: Path) -> None:
+    stack = [0x202] * 16
+
+    def mutate(record: dict[str, object]) -> None:
+        record["stack"] = stack
+        _rehash_record(record)
+
+    path = _mutate_trace_record(tmp_path, mutate)
+    assert verify_trace(path)[0] == 1
+
+
+def test_trace_verify_rejects_stack_over_limit_exits_1(tmp_path: Path) -> None:
+    from chip8.cli import main
+
+    path = _mutate_trace_record(tmp_path, lambda record: record.__setitem__("stack", [0x200] * 17))
+    assert main(["trace-verify", str(path)]) == 1
 
 
 def test_record_rejects_incomplete_before_snapshot(tmp_path: Path) -> None:

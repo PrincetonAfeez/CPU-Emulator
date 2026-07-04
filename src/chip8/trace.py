@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
 
+from .constants import STACK_LIMIT
 from .errors import TraceVerificationError
 from .quirks import PROFILES
 
@@ -197,6 +198,10 @@ def _validate_record_types(record: dict[str, object], line_number: int) -> None:
     if not isinstance(stack, list):
         raise TraceVerificationError(
             f"line {line_number} field 'stack' must be a list of integers"
+        )
+    if len(stack) > STACK_LIMIT:
+        raise TraceVerificationError(
+            f"line {line_number} field 'stack' must contain at most {STACK_LIMIT} addresses"
         )
     for value in stack:
         if not _is_json_int(value):

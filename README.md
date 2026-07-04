@@ -3,7 +3,7 @@
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 ![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Version](https://img.shields.io/badge/version-1.0.3-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 
 A CLI-first CHIP-8 virtual machine written in Python. It implements the opcode
 set, debugging tools, and validation workflows covered by this repository. It runs ROMs in

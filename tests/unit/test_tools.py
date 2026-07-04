@@ -109,7 +109,7 @@ def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert "1.0.3" in capsys.readouterr().out
+    assert "2.0.0" in capsys.readouterr().out
 
 
 def test_run_rejects_headless_with_step(tmp_path: Path) -> None:
