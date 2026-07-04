@@ -66,7 +66,7 @@ works; CI installs exclusively from `requirements-dev.lock`.
 
 CI runs the same checks on Ubuntu and Windows across Python 3.11–3.14 (see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Coverage must stay at
-or above 90% (`--cov-fail-under=90`); the current suite is ~99% on 224 tests
+or above 90% (`--cov-fail-under=90`); the current suite is ~99% on 283 tests
 (plus one optional conformance skip when `CHIP8_CONFORMANCE_ROM_DIR` is unset).
 Each test has a 30s timeout via `pytest-timeout`.
 
@@ -233,7 +233,7 @@ breaks its own hash or the following link, so `trace-verify` detects tampering.
 
 ## Validation
 
-The included **224 automated tests** cover opcode field extraction, flow control,
+The included **283 automated tests** cover opcode field extraction, flow control,
 arithmetic and flags, shifts under both profiles, random masking, drawing and
 collision, keyboard skips and wait-for-key, timers, BCD, register transfers,
 disassembly, CFG reachability, trace tampering, deterministic machine execution,
