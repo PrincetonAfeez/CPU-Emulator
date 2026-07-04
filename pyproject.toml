@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chip8-capstone"
-version = "1.0.2"
+version = "1.0.3"
 description = "A faithful, testable CHIP-8 emulator with CLI debugging tools"
 readme = "README.md"
 requires-python = ">=3.11"

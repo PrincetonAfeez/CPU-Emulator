@@ -10,7 +10,7 @@ from chip8 import CPU, Machine, QuirkProfile, get_quirks
 
 
 def test_package_exports() -> None:
-    assert chip8.__version__ == "1.0.2"
+    assert chip8.__version__ == "1.0.3"
     assert "CPU" in chip8.__all__
     assert "Machine" in chip8.__all__
     assert isinstance(get_quirks("modern"), QuirkProfile)
@@ -29,4 +29,4 @@ def test_main_module_runs_version() -> None:
         env=env,
     )
     assert completed.returncode == 0
-    assert "1.0.2" in completed.stdout
+    assert "1.0.3" in completed.stdout

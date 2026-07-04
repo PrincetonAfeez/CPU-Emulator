@@ -50,6 +50,10 @@ REQUIRED_SNAPSHOT_FIELDS = frozenset(
     }
 )
 
+ADDRESS_MAX = 0xFFF
+OPCODE_MAX = 0xFFFF
+BYTE_MAX = 0xFF
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -57,6 +61,48 @@ def sha256_bytes(data: bytes) -> str:
 
 def _canonical(data: dict[str, object]) -> bytes:
     return json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _is_json_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _require_int_field(
+    record: dict[str, object],
+    field_name: str,
+    line_number: int,
+    *,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
+    value = record.get(field_name)
+    if not _is_json_int(value):
+        raise TraceVerificationError(
+            f"line {line_number} field {field_name!r} must be an integer"
+        )
+    assert isinstance(value, int)
+    if value < minimum or (maximum is not None and value > maximum):
+        if maximum is not None:
+            raise TraceVerificationError(
+                f"line {line_number} field {field_name!r} must be between "
+                f"{minimum} and {maximum}"
+            )
+        raise TraceVerificationError(
+            f"line {line_number} field {field_name!r} must be >= {minimum}"
+        )
+    return value
+
+
+def _require_hex_digest(value: object, field_name: str, line_number: int) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in _HEX_DIGITS for char in value)
+    ):
+        raise TraceVerificationError(
+            f"line {line_number} field {field_name!r} must be a 64-character lowercase hex string"
+        )
+    return value
 
 
 def _require_snapshot(snapshot: dict[str, object], label: str) -> None:
@@ -100,7 +146,7 @@ def _validate_header_schema(header: dict[str, object]) -> None:
         unknown_text = ", ".join(sorted(unknown_quirks))
         raise TraceVerificationError(f"trace header quirks has unknown fields: {unknown_text}")
     name = quirks["name"]
-    if name not in SUPPORTED_QUIRK_NAMES:
+    if not isinstance(name, str) or name not in SUPPORTED_QUIRK_NAMES:
         raise TraceVerificationError(
             'trace header quirks field \'name\' must be "classic" or "modern"'
         )
@@ -121,40 +167,48 @@ def _validate_record_schema(record: dict[str, object], line_number: int) -> None
 
 
 def _validate_record_types(record: dict[str, object], line_number: int) -> None:
-    int_fields = (
-        "sequence",
-        "pc",
-        "opcode",
-        "before_pc",
-        "after_pc",
-        "cycles",
-        "i",
-        "delay_timer",
-        "sound_timer",
-    )
-    for field_name in int_fields:
-        if not isinstance(record.get(field_name), int):
-            raise TraceVerificationError(
-                f"line {line_number} field {field_name!r} must be an integer"
-            )
+    _require_int_field(record, "sequence", line_number, minimum=0)
+    for field_name in ("pc", "before_pc", "after_pc", "i"):
+        _require_int_field(record, field_name, line_number, minimum=0, maximum=ADDRESS_MAX)
+    _require_int_field(record, "opcode", line_number, minimum=0, maximum=OPCODE_MAX)
+    _require_int_field(record, "cycles", line_number, minimum=0)
+    for field_name in ("delay_timer", "sound_timer"):
+        _require_int_field(record, field_name, line_number, minimum=0, maximum=BYTE_MAX)
     if not isinstance(record.get("awaiting_key"), bool):
         raise TraceVerificationError(
             f"line {line_number} field 'awaiting_key' must be a boolean"
         )
     registers = record.get("v")
-    if (
-        not isinstance(registers, list)
-        or len(registers) != 16
-        or not all(isinstance(value, int) for value in registers)
-    ):
+    if not isinstance(registers, list) or len(registers) != 16:
         raise TraceVerificationError(
             f"line {line_number} field 'v' must be a list of 16 integers"
         )
+    for value in registers:
+        if not _is_json_int(value):
+            raise TraceVerificationError(
+                f"line {line_number} field 'v' must be a list of 16 integers"
+            )
+        assert isinstance(value, int)
+        if value < 0 or value > BYTE_MAX:
+            raise TraceVerificationError(
+                f"line {line_number} field 'v' entries must be between 0 and {BYTE_MAX}"
+            )
     stack = record.get("stack")
-    if not isinstance(stack, list) or not all(isinstance(value, int) for value in stack):
+    if not isinstance(stack, list):
         raise TraceVerificationError(
             f"line {line_number} field 'stack' must be a list of integers"
         )
+    for value in stack:
+        if not _is_json_int(value):
+            raise TraceVerificationError(
+                f"line {line_number} field 'stack' must be a list of integers"
+            )
+        assert isinstance(value, int)
+        if value < 0 or value > ADDRESS_MAX:
+            raise TraceVerificationError(
+                f"line {line_number} field 'stack' entries must be between 0 and {ADDRESS_MAX}"
+            )
+    _require_hex_digest(record.get("previous_hash"), "previous_hash", line_number)
 
 
 @dataclass(slots=True)
@@ -261,6 +315,7 @@ def verify_trace(path: Path) -> tuple[int, str]:
             actual_hash = record.pop("hash", None)
             _validate_record_schema(record, line_number)
             _validate_record_types(record, line_number)
+            _require_hex_digest(actual_hash, "hash", line_number)
             if record.get("previous_hash") != previous:
                 raise TraceVerificationError(f"hash-chain link is broken at line {line_number}")
             expected_hash = hashlib.sha256(_canonical(record)).hexdigest()

@@ -29,8 +29,11 @@ schemas: the header must include `format`, `rom_sha256`, and `quirks`; `rom_sha2
 must be a 64-character lowercase hex string; `quirks` must contain exactly the
 fields emitted by `QuirkProfile.describe()` with the expected types (`name` is
 `"classic"` or `"modern"`; the four boolean flags). Extra top-level header
-fields are allowed and participate in the hash chain. `--rom` additionally
-checks the header hash against an actual ROM file.
+fields are allowed and participate in the hash chain. Each record field is
+type- and range-checked (CHIP-8 addresses, byte values, non-negative counters,
+and 64-character lowercase hex digests for `previous_hash` and `hash`). Extra
+record fields are also allowed and participate in the recomputed record hash.
+`--rom` additionally checks the header hash against an actual ROM file.
 
 Version history: `chip8-trace-v1` records lacked `before_pc` and `awaiting_key`;
 v2 is the current schema.

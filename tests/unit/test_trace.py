@@ -24,6 +24,26 @@ def _modern_quirks() -> dict[str, object]:
     return get_quirks("modern").describe()
 
 
+def _mutate_trace_record(
+    tmp_path: Path, mutate: Callable[[dict[str, object]], None]
+) -> Path:
+    path = tmp_path / "trace.log"
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
+    writer.record(
+        0x200,
+        0x6001,
+        _trace_state(pc=0x200, cycles=0),
+        _trace_state(v=[1] + [0] * 15),
+    )
+    writer.close()
+    record = json.loads(path.read_text(encoding="utf-8").splitlines()[1])
+    mutate(record)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[1] = json.dumps(record)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def _valid_header(**overrides: object) -> dict[str, object]:
     header: dict[str, object] = {
         "format": TRACE_FORMAT,
@@ -163,6 +183,41 @@ def test_verify_rejects_invalid_header_schema(
 
 
 @pytest.mark.parametrize(
+    "bad_name",
+    [
+        [],
+        {},
+        None,
+        True,
+        123,
+        "superchip",
+    ],
+)
+def test_verify_rejects_invalid_quirk_name(
+    tmp_path: Path, bad_name: object
+) -> None:
+    header = _valid_header()
+    cast(dict[str, object], header["quirks"])["name"] = bad_name
+    path = tmp_path / "trace.log"
+    path.write_text(json.dumps(header, sort_keys=True) + "\n", encoding="utf-8")
+    with pytest.raises(
+        TraceVerificationError,
+        match='name\' must be "classic" or "modern"',
+    ):
+        verify_trace(path)
+
+
+def test_trace_verify_invalid_quirk_name_exits_1_not_70(tmp_path: Path) -> None:
+    from chip8.cli import main
+
+    header = _valid_header()
+    cast(dict[str, object], header["quirks"])["name"] = []
+    trace = tmp_path / "trace.log"
+    trace.write_text(json.dumps(header, sort_keys=True) + "\n", encoding="utf-8")
+    assert main(["trace-verify", str(trace)]) == 1
+
+
+@pytest.mark.parametrize(
     "record_json,message",
     [
         ("[]", "line 2 trace record is not a JSON object"),
@@ -247,6 +302,42 @@ def test_verify_rejects_invalid_field_types(
     record[field] = bad_value
     lines[1] = json.dumps(record)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(TraceVerificationError, match=message):
+        verify_trace(path)
+
+
+@pytest.mark.parametrize(
+    "mutate,message",
+    [
+        (lambda record: record.__setitem__("pc", True), "field 'pc'"),
+        (lambda record: record.__setitem__("sequence", False), "field 'sequence'"),
+        (
+            lambda record: record.__setitem__("v", [True] + [0] * 15),
+            "field 'v'",
+        ),
+        (lambda record: record.__setitem__("stack", [False]), "field 'stack'"),
+        (lambda record: record.__setitem__("pc", -1), "field 'pc'"),
+        (lambda record: record.__setitem__("pc", 0x1000), "field 'pc'"),
+        (lambda record: record.__setitem__("opcode", 0x10000), "field 'opcode'"),
+        (lambda record: record.__setitem__("delay_timer", 256), "field 'delay_timer'"),
+        (
+            lambda record: record.__setitem__("v", [256] + [0] * 15),
+            "field 'v' entries",
+        ),
+        (lambda record: record.__setitem__("stack", [0x1000]), "field 'stack' entries"),
+        (lambda record: record.__setitem__("previous_hash", "0" * 63), "previous_hash"),
+        (
+            lambda record: record.__setitem__("previous_hash", "GG" + "0" * 62),
+            "previous_hash",
+        ),
+        (lambda record: record.__setitem__("hash", "0" * 63), "field 'hash'"),
+        (lambda record: record.__setitem__("hash", "GG" + "0" * 62), "field 'hash'"),
+    ],
+)
+def test_verify_rejects_invalid_record_schema_values(
+    tmp_path: Path, mutate: Callable[[dict[str, object]], None], message: str
+) -> None:
+    path = _mutate_trace_record(tmp_path, mutate)
     with pytest.raises(TraceVerificationError, match=message):
         verify_trace(path)
 

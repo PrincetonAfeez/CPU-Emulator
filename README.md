@@ -3,7 +3,7 @@
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 ![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Version](https://img.shields.io/badge/version-1.0.2-blue)
+![Version](https://img.shields.io/badge/version-1.0.3-blue)
 
 A CLI-first CHIP-8 virtual machine written in Python. It implements the opcode
 set, debugging tools, and validation workflows covered by this repository. It runs ROMs in
@@ -223,8 +223,9 @@ created as needed). Optional `--report` writes a JSON summary.
 `chip8-trace-v2` (`chip8-trace-v1` is rejected; re-record old logs). The first
 line is a JSON header with required fields `format`, `rom_sha256`, and `quirks`
 (the full quirk profile: `name`, `shift_uses_vy`, `load_store_increment_i`,
-`draw_wrap`, `logic_resets_flag`). `trace-verify` type-checks the header before
-walking the chain; extra top-level header fields are allowed. Each record
+`draw_wrap`, `logic_resets_flag`). `trace-verify` type-checks the header and each
+record before walking the chain; extra top-level header and record fields are
+allowed and participate in the hash. Each record
 contains the instruction address, `before_pc`,
 post-instruction `after_pc`, `cycles`, registers, timers, stack, `awaiting_key`,
 the previous record hash, then hashes its canonical JSON. Changing a record
