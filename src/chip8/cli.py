@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+import logging
 from pathlib import Path
 
 from . import __version__
@@ -17,6 +17,16 @@ from .memory import MEMORY_SIZE, PROGRAM_START
 from .quirks import PROFILES, get_quirks
 from .runner import validate_rom
 from .trace import TraceWriter, read_header, sha256_bytes, verify_trace
+
+logger = logging.getLogger("chip8")
+
+
+def _configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="chip8: %(levelname)s: %(message)s",
+        force=True,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -135,10 +145,12 @@ MAX_ROM_SIZE = MEMORY_SIZE - PROGRAM_START
 
 def _warn_if_unloadable(rom: bytes) -> None:
     if len(rom) > MAX_ROM_SIZE:
-        print(
-            f"chip8: warning: {len(rom)} bytes exceeds the {MAX_ROM_SIZE}-byte CHIP-8 ROM "
-            f"limit at 0x{PROGRAM_START:03X}; this file could not be loaded to run",
-            file=sys.stderr,
+        logger.warning(
+            "%s bytes exceeds the %s-byte CHIP-8 ROM limit at 0x%03X; "
+            "this file could not be loaded to run",
+            len(rom),
+            MAX_ROM_SIZE,
+            PROGRAM_START,
         )
 
 
@@ -151,10 +163,7 @@ def command_run(args: argparse.Namespace) -> int:
     if args.headless and args.step:
         raise ValueError("--step cannot be combined with --headless")
     if interactive and args.cycles is None:
-        print(
-            "chip8: note: interactive mode runs until Ctrl+C unless --cycles is set",
-            file=sys.stderr,
-        )
+        logger.info("interactive mode runs until Ctrl+C unless --cycles is set")
     keypad = TerminalKeypad() if interactive else None
     # Step mode also uses a deterministic clock so timers tick one instruction
     # period per step instead of racing down during the human pause between steps.
@@ -165,10 +174,9 @@ def command_run(args: argparse.Namespace) -> int:
     if args.headless and seed is None:
         seed = 0
     if interactive and not args.step and args.seed is not None:
-        print(
-            "chip8: note: --seed affects random opcodes only in interactive mode; "
-            "timing and keyboard input remain nondeterministic",
-            file=sys.stderr,
+        logger.info(
+            "--seed affects random opcodes only in interactive mode; "
+            "timing and keyboard input remain nondeterministic"
         )
     machine = Machine.create(
         quirks=get_quirks(args.quirks), keypad=keypad, clock=clock, seed=seed
@@ -222,7 +230,7 @@ def command_info(args: argparse.Namespace) -> int:
     for instruction in disassemble(rom)[:10]:
         print(f"  {instruction.format()}")
     if len(rom) % 2:
-        print("Warning: ROM has an odd trailing byte")
+        logger.warning("ROM has an odd trailing byte")
     return 0
 
 
@@ -240,7 +248,7 @@ def command_test_rom(args: argparse.Namespace) -> int:
     output = report.to_json()
     print(output)
     if report.failure_reason:
-        print(f"chip8: test-rom failed: {report.failure_reason}", file=sys.stderr)
+        logger.error("test-rom failed: %s", report.failure_reason)
     if args.report:
         args.report.write_text(output + "\n", encoding="utf-8")
     return 0 if report.success else 1
@@ -280,6 +288,7 @@ def dispatch(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -287,18 +296,18 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         # Ctrl-C is a normal way to stop an interactive run; exit cleanly with
         # the conventional 128 + SIGINT status instead of dumping a traceback.
-        print("\nchip8: interrupted", file=sys.stderr)
+        logger.error("interrupted")
         return 130
     except (Chip8Error, OSError, ValueError) as exc:
         if args.debug_errors:
             raise
-        print(f"chip8: error: {exc}", file=sys.stderr)
-        return 2
+        logger.error("%s", exc)
+        return 1
     except Exception as exc:
         # Last resort: surface a clean message instead of a raw traceback unless
         # the user opted into --debug-errors.
         if args.debug_errors:
             raise
-        print(f"chip8: unexpected error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        logger.error("unexpected error: %s: %s", type(exc).__name__, exc)
         return 70
 

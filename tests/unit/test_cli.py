@@ -1,6 +1,8 @@
 """Unit tests for the CLI module."""
 
 import argparse
+import json
+import logging
 import sys
 from pathlib import Path
 
@@ -83,24 +85,29 @@ def test_read_rom_missing_file(tmp_path: Path) -> None:
         _read_rom(tmp_path / "missing.ch8")
 
 
-def test_warn_if_unloadable_prints(capsys: pytest.CaptureFixture[str]) -> None:
+def test_warn_if_unloadable_logs(caplog: pytest.LogCaptureFixture) -> None:
     from chip8.memory import MEMORY_SIZE, PROGRAM_START
 
-    _warn_if_unloadable(b"\x00" * (MEMORY_SIZE - PROGRAM_START + 1))
-    assert "warning" in capsys.readouterr().err.lower()
+    with caplog.at_level(logging.WARNING, logger="chip8"):
+        _warn_if_unloadable(b"\x00" * (MEMORY_SIZE - PROGRAM_START + 1))
+    assert "3584-byte" in caplog.text
 
 
-def test_info_warns_on_odd_rom(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_info_warns_on_odd_rom(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     rom = tmp_path / "odd.ch8"
     rom.write_bytes(b"\x60\x01\xab")
     assert main(["info", str(rom)]) == 0
-    assert "odd trailing byte" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "odd trailing byte" not in captured.out
+    assert "odd trailing byte" in captured.err.lower()
 
 
 def test_run_headless_requires_cycles(tmp_path: Path) -> None:
     rom = tmp_path / "tiny.ch8"
     rom.write_bytes(bytes.fromhex("6001 1200"))
-    assert main(["run", str(rom), "--headless"]) == 2
+    assert main(["run", str(rom), "--headless"]) == 1
 
 
 def test_run_headless_seed_is_printed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -178,9 +185,106 @@ def test_test_rom_writes_report(tmp_path: Path) -> None:
     assert '"success": true' in report.read_text(encoding="utf-8")
 
 
+def test_test_rom_keeps_json_on_stdout_and_logs_failure_on_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rom = tmp_path / "loop.ch8"
+    rom.write_bytes(bytes.fromhex("6001 7001 1202"))
+    assert main(["test-rom", str(rom), "--cycles", "5", "--expect-pc", "0x200"]) == 1
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["success"] is False
+    assert "golden mismatch" in captured.err.lower()
+    assert "chip8: error:" in captured.err.lower()
+
+
 def test_trace_verify_without_rom(tmp_path: Path) -> None:
     rom = tmp_path / "tiny.ch8"
     rom.write_bytes(bytes.fromhex("6001 1200"))
     trace = tmp_path / "run.trace"
     assert main(["run", str(rom), "--headless", "--cycles", "1", "--trace", str(trace)]) == 0
     assert main(["trace-verify", str(trace)]) == 0
+
+
+def test_argparse_usage_errors_exit_2() -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["run", "rom.ch8", "--cycles", "0"])
+    assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        main(["not-a-command"])
+    assert exc.value.code == 2
+
+
+def test_missing_rom_exits_1(tmp_path: Path) -> None:
+    assert main(["info", str(tmp_path / "missing.ch8")]) == 1
+
+
+def test_empty_rom_exits_1(tmp_path: Path) -> None:
+    rom = tmp_path / "empty.ch8"
+    rom.write_bytes(b"")
+    assert main(["disasm", str(rom)]) == 1
+
+
+def test_invalid_opcode_exits_1(tmp_path: Path) -> None:
+    rom = tmp_path / "bad-op.ch8"
+    rom.write_bytes(bytes.fromhex("0000"))
+    assert main(["run", str(rom), "--headless", "--cycles", "1"]) == 1
+
+
+def test_trace_mismatch_exits_1(tmp_path: Path) -> None:
+    from chip8.quirks import get_quirks
+    from chip8.trace import TraceWriter
+
+    def trace_state(**overrides: object) -> dict[str, object]:
+        state: dict[str, object] = {
+            "v": [0] * 16,
+            "i": 0,
+            "delay_timer": 0,
+            "sound_timer": 0,
+            "stack": [],
+            "pc": 0x202,
+            "cycles": 1,
+            "awaiting_key": False,
+        }
+        state.update(overrides)
+        return state
+
+    rom = tmp_path / "tiny.ch8"
+    rom_bytes = bytes.fromhex("6001 1200")
+    rom.write_bytes(rom_bytes)
+    other = tmp_path / "other.ch8"
+    other.write_bytes(b"\xFF\xFF")
+    trace = tmp_path / "run.trace"
+    writer = TraceWriter.open(trace, rom=rom_bytes, quirks=get_quirks("modern").describe())
+    writer.record(
+        0x200,
+        0x6001,
+        trace_state(pc=0x200, cycles=0),
+        trace_state(v=[1] + [0] * 15),
+    )
+    writer.close()
+    assert main(["trace-verify", str(trace), "--rom", str(other)]) == 1
+
+
+def test_unexpected_error_exits_70(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(_: argparse.Namespace) -> int:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("chip8.cli.dispatch", boom)
+    assert main(["info", "x"]) == 70
+
+
+def test_ctrl_c_exits_130(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rom = tmp_path / "tiny.ch8"
+    rom.write_bytes(bytes.fromhex("6001 1200"))
+
+    class InterruptingKeypad(TerminalKeypad):
+        def __enter__(self) -> TerminalKeypad:
+            return self
+
+        def poll(self, stream: object | None = None) -> None:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr("chip8.cli.TerminalKeypad", InterruptingKeypad)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    assert main(["run", str(rom)]) == 130

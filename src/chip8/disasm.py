@@ -1,4 +1,7 @@
-"""Linear-sweep disassembler producing addressed, readable mnemonics."""
+"""Linear-sweep disassembler producing addressed, readable mnemonics.
+
+Structured return types are documented in docs/output-formats.md.
+"""
 
 from __future__ import annotations
 

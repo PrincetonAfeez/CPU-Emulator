@@ -22,7 +22,7 @@ when `I` is near `0xFFF` therefore abort instead of wrapping into low memory.
 ## Consequences
 
 - Behavior is predictable and easy to test; faults surface as explicit emulator
-  errors (CLI exit code 2).
+  errors (CLI exit code 1).
 - Some pathological or incorrectly authored ROMs that rely on silent wrap may
   fail where other emulators succeed — an acceptable trade-off for an academic
   "strict machine" model documented in the README.

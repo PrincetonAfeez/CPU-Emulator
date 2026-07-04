@@ -13,6 +13,7 @@ from chip8.disasm import format_disassembly
 from chip8.errors import TraceVerificationError
 from chip8.keyboard import TerminalKeypad
 from chip8.opcode import decode
+from chip8.quirks import get_quirks
 from chip8.runner import (
     ValidationReport,
     _describe_failure,
@@ -20,6 +21,10 @@ from chip8.runner import (
     validate_rom,
 )
 from chip8.trace import TraceWriter, verify_trace
+
+
+def _modern_quirks() -> dict[str, object]:
+    return get_quirks("modern").describe()
 
 
 def _trace_state(**overrides: object) -> dict[str, object]:
@@ -110,7 +115,7 @@ def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None:
 def test_run_rejects_headless_with_step(tmp_path: Path) -> None:
     rom = tmp_path / "tiny.ch8"
     rom.write_bytes(b"\x60\x01\x12\x00")
-    assert main(["run", str(rom), "--headless", "--cycles", "4", "--step"]) == 2
+    assert main(["run", str(rom), "--headless", "--cycles", "4", "--step"]) == 1
 
 
 def test_oversize_rom_warning(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -120,7 +125,7 @@ def test_oversize_rom_warning(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     rom.write_bytes(b"\x00" * (MEMORY_SIZE - PROGRAM_START + 1))
     assert main(["info", str(rom)]) == 0
     assert "warning" in capsys.readouterr().err.lower()
-    assert main(["run", str(rom), "--headless", "--cycles", "1"]) == 2
+    assert main(["run", str(rom), "--headless", "--cycles", "1"]) == 1
     assert "warning" in capsys.readouterr().err.lower()
     assert main(["test-rom", str(rom), "--cycles", "1"]) == 1
     assert "warning" in capsys.readouterr().err.lower()
@@ -129,15 +134,15 @@ def test_oversize_rom_warning(tmp_path: Path, capsys: pytest.CaptureFixture[str]
 def test_empty_rom_exits_with_error(tmp_path: Path) -> None:
     rom = tmp_path / "empty.ch8"
     rom.write_bytes(b"")
-    assert main(["run", str(rom), "--headless", "--cycles", "1"]) == 2
-    assert main(["disasm", str(rom)]) == 2
-    assert main(["cfg", str(rom)]) == 2
+    assert main(["run", str(rom), "--headless", "--cycles", "1"]) == 1
+    assert main(["disasm", str(rom)]) == 1
+    assert main(["cfg", str(rom)]) == 1
 
 
 def test_memory_fault_rom_exits_with_error(tmp_path: Path) -> None:
     rom = tmp_path / "fault.ch8"
     rom.write_bytes(bytes.fromhex("aff8 ff55"))
-    assert main(["run", str(rom), "--headless", "--cycles", "3"]) == 2
+    assert main(["run", str(rom), "--headless", "--cycles", "3"]) == 1
 
 
 def test_interactive_ctrl_c_exits_130(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -219,7 +224,7 @@ def test_trace_rejects_v1_format(tmp_path: Path) -> None:
 
 def test_trace_rejects_header_only_file(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.close()
     with pytest.raises(TraceVerificationError, match="no execution records"):
         verify_trace(path)
@@ -228,7 +233,7 @@ def test_trace_rejects_header_only_file(tmp_path: Path) -> None:
 def test_trace_skips_blank_lines(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
     before = _trace_state(pc=0x200, cycles=0)
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, before, _trace_state(v=[1] + [0] * 15))
     writer.close()
     text = path.read_text(encoding="utf-8")
@@ -253,7 +258,7 @@ def test_trace_chain_detects_tampering(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
     before = _trace_state(pc=0x200, cycles=0)
     after = _trace_state(v=[1] + [0] * 15)
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, before, after)
     writer.close()
     assert verify_trace(path)[0] == 1
@@ -278,20 +283,20 @@ def test_trace_verify_cross_checks_rom(tmp_path: Path) -> None:
     rom.write_bytes(rom_bytes)
     trace = tmp_path / "trace.log"
     before = _trace_state(pc=0x200, cycles=0)
-    writer = TraceWriter.open(trace, rom=rom_bytes, quirks={"name": "modern"})
+    writer = TraceWriter.open(trace, rom=rom_bytes, quirks=_modern_quirks())
     writer.record(0x200, 0x6001, before, _trace_state(v=[1] + [0] * 15))
     writer.close()
     assert main(["trace-verify", str(trace), "--rom", str(rom)]) == 0
     other = tmp_path / "other.ch8"
     other.write_bytes(b"\xFF\xFF")
-    assert main(["trace-verify", str(trace), "--rom", str(other)]) == 2  # ROM mismatch
+    assert main(["trace-verify", str(trace), "--rom", str(other)]) == 1  # ROM mismatch
 
 
 def test_trace_rejects_missing_schema_fields(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
     before = _trace_state(pc=0x200, cycles=0)
     after = _trace_state(v=[1] + [0] * 15)
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, before, after)
     writer.close()
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -305,7 +310,7 @@ def test_trace_rejects_missing_schema_fields(tmp_path: Path) -> None:
 
 def test_trace_writer_rejects_incomplete_snapshot(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     with pytest.raises(TraceVerificationError, match="after snapshot missing"):
         writer.record(0x200, 0x6001, _trace_state(pc=0x200, cycles=0), {"pc": 0x202})
     writer.close()
@@ -315,7 +320,7 @@ def test_trace_rejects_invalid_field_types(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
     before = _trace_state(pc=0x200, cycles=0)
     after = _trace_state(v=[1] + [0] * 15)
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, before, after)
     writer.close()
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -334,7 +339,7 @@ def test_fx0a_awaiting_key_in_trace_record(tmp_path: Path) -> None:
     cpu.pc += 2
     cpu.execute(decode(0xF00A), 0x200)
     after = cpu.snapshot()
-    writer = TraceWriter.open(path, rom=b"\xF0\x0A", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\xF0\x0A", quirks=_modern_quirks())
     writer.record(0x200, 0xF00A, before, after)
     writer.close()
     record = json.loads(path.read_text(encoding="utf-8").splitlines()[1])
@@ -345,7 +350,7 @@ def test_fx0a_awaiting_key_in_trace_record(tmp_path: Path) -> None:
 def test_trace_detects_header_tampering(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
     before = _trace_state(pc=0x200, cycles=0)
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, before, _trace_state(v=[1] + [0] * 15))
     writer.close()
     lines = path.read_text(encoding="utf-8").splitlines()

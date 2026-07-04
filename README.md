@@ -5,7 +5,8 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Version](https://img.shields.io/badge/version-1.0.2-blue)
 
-A complete, CLI-first CHIP-8 virtual machine written in Python. It runs ROMs in
+A CLI-first CHIP-8 virtual machine written in Python. It implements the opcode
+set, debugging tools, and validation workflows covered by this repository. It runs ROMs in
 the terminal, supports deterministic headless execution, and includes a shared
 disassembler, step debugger, static control-flow graph analyzer, subprocess ROM
 validator, ROM identity hashes, and tamper-evident execution traces.
@@ -18,7 +19,8 @@ python -m pip install .
 python -m pip install -e ".[dev]"
 # or via requirements files:
 python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.lock
+python -m pip install -e . --no-deps
 chip8 info path/to/rom.ch8
 chip8 disasm path/to/rom.ch8
 chip8 run path/to/rom.ch8 --speed 700
@@ -41,12 +43,26 @@ type-check with `mypy` (configured for `--strict`). Print the version with
 
 ## Development
 
+Reproducible installs use the pinned lockfile checked into the repository:
+
 ```console
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements-dev.lock
+python -m pip install -e . --no-deps
 pytest -q
 ruff check src tests
 mypy
 ```
+
+After changing `[project.optional-dependencies].dev` in `pyproject.toml`, regenerate
+the lockfile with [pip-tools](https://pip-tools.readthedocs.io/):
+
+```console
+python -m pip install pip-tools
+pip-compile pyproject.toml --extra dev -o requirements-dev.lock --strip-extras
+```
+
+For a quick local setup without the lockfile, `python -m pip install -e ".[dev]"` still
+works; CI installs exclusively from `requirements-dev.lock`.
 
 CI runs the same checks on Ubuntu and Windows across Python 3.11–3.14 (see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Coverage must stay at
@@ -62,7 +78,7 @@ loadable ROM (3584 bytes) still disassemble, but `info`, `disasm`, `cfg`, and
 `run` print a warning that the file could not be loaded to run.
 
 Interactive `chip8 run` requires a real terminal (stdin must be a TTY). Piped or
-redirected stdin exits with code 2 and a friendly error message. Without
+redirected stdin exits with code 1 and a friendly error message. Without
 `--cycles`, interactive mode runs until you press Ctrl+C (a note is printed).
 
 Headless mode never polls keyboard input. A ROM that blocks on `FX0A` will spin
@@ -74,8 +90,8 @@ Exit codes:
 | Code | Meaning |
 |---|---|
 | 0 | success |
-| 1 | `test-rom` smoke test failed (crash, timeout, golden mismatch, or trace verify failure) |
-| 2 | usage error, or a reported emulator error (missing/oversized ROM, invalid opcode, stack over/underflow, trace mismatch) |
+| 1 | expected command or runtime failure (missing/empty ROM, invalid opcode, stack or memory fault, trace verification failure, invalid runtime option combinations, or `test-rom` validation failure) |
+| 2 | command-line usage error from argparse |
 | 70 | unexpected internal error (re-run with `--debug-errors` for the traceback) |
 | 130 | interrupted with Ctrl-C |
 
@@ -189,6 +205,10 @@ fallthrough. Depth-first search from `0x200` identifies reachable and possible
 dead code. `BNNN`, `RET`, and blocking `FX0A` remain honestly unresolved because
 their targets or fallthrough depend on runtime state.
 
+Programmatic outputs (`disassemble()`, `build_cfg()`, and their return types) are
+documented as a stable schema in [`docs/output-formats.md`](docs/output-formats.md).
+CLI disassembly and CFG reports are human-readable only.
+
 `test-rom` is a **smoke test**: it starts a separate Python process, captures
 stdout, stderr, and exit status, applies a timeout, fixes the random seed, and
 parses the final CPU snapshot from headless output. It confirms the ROM runs
@@ -200,7 +220,11 @@ Optional `--trace PATH` writes and verifies a trace file (parent directories are
 created as needed). Optional `--report` writes a JSON summary.
 
 `info` hashes the exact ROM bytes with SHA-256. Trace files use format
-`chip8-trace-v2` (`chip8-trace-v1` is rejected; re-record old logs). Each record
+`chip8-trace-v2` (`chip8-trace-v1` is rejected; re-record old logs). The first
+line is a JSON header with required fields `format`, `rom_sha256`, and `quirks`
+(the full quirk profile: `name`, `shift_uses_vy`, `load_store_increment_i`,
+`draw_wrap`, `logic_resets_flag`). `trace-verify` type-checks the header before
+walking the chain; extra top-level header fields are allowed. Each record
 contains the instruction address, `before_pc`,
 post-instruction `after_pc`, `cycles`, registers, timers, stack, `awaiting_key`,
 the previous record hash, then hashes its canonical JSON. Changing a record

@@ -1,4 +1,7 @@
-"""Static control-flow graph built from a ROM's linear disassembly."""
+"""Static control-flow graph built from a ROM's linear disassembly.
+
+Structured return types are documented in docs/output-formats.md.
+"""
 
 from __future__ import annotations
 

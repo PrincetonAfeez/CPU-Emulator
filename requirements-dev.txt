@@ -1,6 +1,15 @@
-# Development install (mirrors pyproject.toml [project.optional-dependencies].dev).
-# Prefer from repo root:
+# Locked development environment (matches CI).
 #
-#   pip install -e ".[dev]"
-
--e ".[dev]"
+# Install from repo root:
+#
+#   python -m pip install -r requirements-dev.lock
+#   python -m pip install -e . --no-deps
+#
+# Regenerate the lockfile after changing [project.optional-dependencies].dev in
+# pyproject.toml:
+#
+#   python -m pip install pip-tools
+#   pip-compile pyproject.toml --extra dev -o requirements-dev.lock --strip-extras
+#
+# The runtime package has no third-party dependencies; the lockfile pins only
+# development and test tooling (pytest, ruff, mypy, and their transitive deps).

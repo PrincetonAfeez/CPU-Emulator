@@ -2,6 +2,7 @@
 
 from chip8.cfg import build_cfg
 
+
 def test_format_report_lists_unresolved_edges() -> None:
     graph = build_cfg(bytes.fromhex("1206 0000 B300 00EE"))
     report = graph.format_report()

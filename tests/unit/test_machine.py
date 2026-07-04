@@ -124,12 +124,15 @@ def test_step_updates_timers_from_clock() -> None:
 
 
 def test_run_headless_writes_trace_records(tmp_path: Path) -> None:
+    from chip8.quirks import get_quirks
     from chip8.trace import TraceWriter, verify_trace
 
     trace = tmp_path / "run.trace"
     machine = Machine.create(clock=DeterministicClock(), seed=0)
     machine.cpu.load_rom(bytes.fromhex("6001 1200"))
-    writer = TraceWriter.open(trace, rom=bytes.fromhex("6001 1200"), quirks={"name": "modern"})
+    writer = TraceWriter.open(
+        trace, rom=bytes.fromhex("6001 1200"), quirks=get_quirks("modern").describe()
+    )
     try:
         machine.run_headless(2, trace=writer)
     finally:

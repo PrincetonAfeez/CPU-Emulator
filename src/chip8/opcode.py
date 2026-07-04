@@ -1,4 +1,7 @@
-"""Opcode model: nibble-field extraction, dispatch helpers, and mnemonics."""
+"""Opcode model: nibble-field extraction, dispatch helpers, and mnemonics.
+
+Field semantics and mnemonic rules are documented in docs/output-formats.md.
+"""
 
 from __future__ import annotations
 

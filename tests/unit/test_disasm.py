@@ -3,6 +3,7 @@
 from chip8.disasm import Instruction, disassemble, format_disassembly
 from chip8.opcode import decode
 
+
 def test_instruction_format() -> None:
     instruction = Instruction(0x200, decode(0x6001))
     assert instruction.format() == "200: 6001  LD V0, 0x01"

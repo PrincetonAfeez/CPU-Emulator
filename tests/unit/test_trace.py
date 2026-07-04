@@ -2,11 +2,14 @@
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from chip8.errors import TraceVerificationError
+from chip8.quirks import get_quirks
 from chip8.trace import (
     TRACE_FORMAT,
     TraceWriter,
@@ -15,6 +18,20 @@ from chip8.trace import (
     sha256_bytes,
     verify_trace,
 )
+
+
+def _modern_quirks() -> dict[str, object]:
+    return get_quirks("modern").describe()
+
+
+def _valid_header(**overrides: object) -> dict[str, object]:
+    header: dict[str, object] = {
+        "format": TRACE_FORMAT,
+        "rom_sha256": sha256_bytes(b"\x60\x01"),
+        "quirks": _modern_quirks(),
+    }
+    header.update(overrides)
+    return header
 
 
 def _trace_state(**overrides: object) -> dict[str, object]:
@@ -43,14 +60,14 @@ def test_trace_writer_context_manager(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
     before = _trace_state(pc=0x200, cycles=0)
     after = _trace_state(v=[1] + [0] * 15)
-    with TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"}) as writer:
+    with TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks()) as writer:
         writer.record(0x200, 0x6001, before, after)
     assert verify_trace(path)[0] == 1
 
 
 def test_read_header_parses_first_line(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
-    TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"}).close()
+    TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks()).close()
     header = read_header(path)
     assert header["format"] == TRACE_FORMAT
     assert "rom_sha256" in header
@@ -70,20 +87,106 @@ def test_read_header_rejects_non_object(tmp_path: Path) -> None:
         read_header(path)
 
 
+@pytest.mark.parametrize(
+    "header_json",
+    [
+        "[]",
+        "null",
+        '"text"',
+    ],
+)
+def test_verify_rejects_non_object_header(tmp_path: Path, header_json: str) -> None:
+    path = tmp_path / "trace.log"
+    path.write_text(header_json + "\n", encoding="utf-8")
+    with pytest.raises(TraceVerificationError, match="trace header is not a JSON object"):
+        verify_trace(path)
+
+
 def test_verify_rejects_unsupported_format(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
     path.write_text(
-        json.dumps({"format": "chip8-trace-v9", "rom_sha256": "00" * 32, "quirks": {}})
-        + "\n",
+        json.dumps(_valid_header(format="chip8-trace-v9")) + "\n",
         encoding="utf-8",
     )
     with pytest.raises(TraceVerificationError, match="unsupported or missing"):
         verify_trace(path)
 
 
+@pytest.mark.parametrize(
+    "mutate,message",
+    [
+        (lambda header: header.pop("rom_sha256"), "missing fields: rom_sha256"),
+        (lambda header: header.pop("quirks"), "missing fields: quirks"),
+        (lambda header: header.__setitem__("rom_sha256", 123), "rom_sha256"),
+        (lambda header: header.__setitem__("rom_sha256", "0" * 63), "rom_sha256"),
+        (lambda header: header.__setitem__("rom_sha256", "GG" + "0" * 62), "rom_sha256"),
+        (lambda header: header.__setitem__("quirks", []), "quirks"),
+        (
+            lambda header: header.__setitem__(
+                "quirks",
+                {
+                    "name": "modern",
+                    "shift_uses_vy": False,
+                    "load_store_increment_i": False,
+                    "draw_wrap": False,
+                },
+            ),
+            "quirks missing fields",
+        ),
+        (
+            lambda header: header.__setitem__("quirks", {**_modern_quirks(), "extra": True}),
+            "quirks has unknown fields",
+        ),
+        (
+            lambda header: cast(dict[str, object], header["quirks"]).__setitem__(
+                "shift_uses_vy", "yes"
+            ),
+            "shift_uses_vy",
+        ),
+        (
+            lambda header: cast(dict[str, object], header["quirks"]).__setitem__(
+                "name", "superchip"
+            ),
+            'name\' must be "classic" or "modern"',
+        ),
+    ],
+)
+def test_verify_rejects_invalid_header_schema(
+    tmp_path: Path, mutate: Callable[[dict[str, object]], None], message: str
+) -> None:
+    header = _valid_header()
+    mutate(header)
+    path = tmp_path / "trace.log"
+    path.write_text(json.dumps(header, sort_keys=True) + "\n", encoding="utf-8")
+    with pytest.raises(TraceVerificationError, match=message):
+        verify_trace(path)
+
+
+@pytest.mark.parametrize(
+    "record_json,message",
+    [
+        ("[]", "line 2 trace record is not a JSON object"),
+        ("null", "line 2 trace record is not a JSON object"),
+        ('"text"', "line 2 trace record is not a JSON object"),
+    ],
+)
+def test_verify_rejects_non_object_record(
+    tmp_path: Path, record_json: str, message: str
+) -> None:
+    path = tmp_path / "trace.log"
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
+    writer.record(0x200, 0x6001, _trace_state(pc=0x200, cycles=0), _trace_state(v=[1] + [0] * 15))
+    writer.close()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[1] = record_json
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(TraceVerificationError, match=message):
+        verify_trace(path)
+
+
 def test_verify_rejects_invalid_record_json(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, _trace_state(pc=0x200, cycles=0), _trace_state(v=[1] + [0] * 15))
     writer.close()
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -95,7 +198,7 @@ def test_verify_rejects_invalid_record_json(tmp_path: Path) -> None:
 
 def test_verify_rejects_broken_hash_chain(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, _trace_state(pc=0x200, cycles=0), _trace_state(v=[1] + [0] * 15))
     writer.close()
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -109,7 +212,7 @@ def test_verify_rejects_broken_hash_chain(tmp_path: Path) -> None:
 
 def test_verify_rejects_sequence_mismatch(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, _trace_state(pc=0x200, cycles=0), _trace_state(v=[1] + [0] * 15))
     writer.close()
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -136,7 +239,7 @@ def test_verify_rejects_invalid_field_types(
     tmp_path: Path, field: str, bad_value: object, message: str
 ) -> None:
     path = tmp_path / "trace.log"
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     writer.record(0x200, 0x6001, _trace_state(pc=0x200, cycles=0), _trace_state(v=[1] + [0] * 15))
     writer.close()
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -150,7 +253,7 @@ def test_verify_rejects_invalid_field_types(
 
 def test_record_rejects_incomplete_before_snapshot(tmp_path: Path) -> None:
     path = tmp_path / "trace.log"
-    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks={"name": "modern"})
+    writer = TraceWriter.open(path, rom=b"\x60\x01", quirks=_modern_quirks())
     with pytest.raises(TraceVerificationError, match="before snapshot missing"):
         writer.record(0x200, 0x6001, {"pc": 0x200}, _trace_state())
     writer.close()

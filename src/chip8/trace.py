@@ -9,9 +9,15 @@ from pathlib import Path
 from typing import TextIO
 
 from .errors import TraceVerificationError
+from .quirks import PROFILES
 
 TRACE_FORMAT = "chip8-trace-v2"
 ZERO_HASH = "0" * 64
+_HEX_DIGITS = frozenset("0123456789abcdef")
+
+REQUIRED_HEADER_FIELDS = frozenset({"format", "rom_sha256", "quirks"})
+REQUIRED_QUIRK_FIELDS = frozenset(PROFILES["modern"].describe().keys())
+SUPPORTED_QUIRK_NAMES = frozenset(PROFILES.keys())
 
 REQUIRED_RECORD_FIELDS = frozenset(
     {
@@ -58,6 +64,51 @@ def _require_snapshot(snapshot: dict[str, object], label: str) -> None:
     if missing:
         missing_text = ", ".join(sorted(missing))
         raise TraceVerificationError(f"{label} snapshot missing fields: {missing_text}")
+
+
+def _validate_header_schema(header: dict[str, object]) -> None:
+    missing = REQUIRED_HEADER_FIELDS - header.keys()
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise TraceVerificationError(f"trace header missing fields: {missing_text}")
+    recorded_format = header["format"]
+    if recorded_format == "chip8-trace-v1":
+        raise TraceVerificationError(
+            "trace format chip8-trace-v1 is no longer supported; "
+            "re-record with chip8-trace-v2"
+        )
+    if recorded_format != TRACE_FORMAT:
+        raise TraceVerificationError("unsupported or missing trace format")
+    digest = header["rom_sha256"]
+    if (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(char not in _HEX_DIGITS for char in digest)
+    ):
+        raise TraceVerificationError(
+            "trace header field 'rom_sha256' must be a 64-character lowercase hex string"
+        )
+    quirks = header["quirks"]
+    if not isinstance(quirks, dict):
+        raise TraceVerificationError("trace header field 'quirks' must be a JSON object")
+    missing_quirks = REQUIRED_QUIRK_FIELDS - quirks.keys()
+    if missing_quirks:
+        missing_text = ", ".join(sorted(missing_quirks))
+        raise TraceVerificationError(f"trace header quirks missing fields: {missing_text}")
+    unknown_quirks = quirks.keys() - REQUIRED_QUIRK_FIELDS
+    if unknown_quirks:
+        unknown_text = ", ".join(sorted(unknown_quirks))
+        raise TraceVerificationError(f"trace header quirks has unknown fields: {unknown_text}")
+    name = quirks["name"]
+    if name not in SUPPORTED_QUIRK_NAMES:
+        raise TraceVerificationError(
+            'trace header quirks field \'name\' must be "classic" or "modern"'
+        )
+    for field_name in REQUIRED_QUIRK_FIELDS - {"name"}:
+        if not isinstance(quirks[field_name], bool):
+            raise TraceVerificationError(
+                f"trace header quirks field {field_name!r} must be a boolean"
+            )
 
 
 def _validate_record_schema(record: dict[str, object], line_number: int) -> None:
@@ -121,6 +172,7 @@ class TraceWriter:
             "rom_sha256": sha256_bytes(rom),
             "quirks": quirks,
         }
+        _validate_header_schema(header)
         stream.write(json.dumps(header, sort_keys=True) + "\n")
         # Seed the chain with the header hash so the ROM identity and quirks are
         # tamper-evident too, not just the per-instruction records.
@@ -187,14 +239,9 @@ def verify_trace(path: Path) -> tuple[int, str]:
             header = json.loads(stream.readline())
         except json.JSONDecodeError as exc:
             raise TraceVerificationError("trace header is not valid JSON") from exc
-        recorded_format = header.get("format")
-        if recorded_format != TRACE_FORMAT:
-            if recorded_format == "chip8-trace-v1":
-                raise TraceVerificationError(
-                    "trace format chip8-trace-v1 is no longer supported; "
-                    "re-record with chip8-trace-v2"
-                )
-            raise TraceVerificationError("unsupported or missing trace format")
+        if not isinstance(header, dict):
+            raise TraceVerificationError("trace header is not a JSON object")
+        _validate_header_schema(header)
         # Recompute the genesis link from the header; any edit to the recorded
         # ROM hash or quirks breaks the first record's chain.
         previous = hashlib.sha256(_canonical(header)).hexdigest()
@@ -207,6 +254,10 @@ def verify_trace(path: Path) -> tuple[int, str]:
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise TraceVerificationError(f"line {line_number} is not valid JSON") from exc
+            if not isinstance(record, dict):
+                raise TraceVerificationError(
+                    f"line {line_number} trace record is not a JSON object"
+                )
             actual_hash = record.pop("hash", None)
             _validate_record_schema(record, line_number)
             _validate_record_types(record, line_number)
