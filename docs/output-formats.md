@@ -7,7 +7,7 @@ This document is the compatibility contract for those structures.
 ## Compatibility
 
 - **Field names and meanings** on `Instruction`, `Opcode`, and `CFG` are
-  stable within the current major package version (`1.x`).
+  stable within the current major package version (`2.x`).
 - **CLI text reports** (`format_disassembly()`, `CFG.format_report()`, and
   similar helpers) are human-readable only. Their exact wording, ordering, and
   formatting are **not** guaranteed as a machine-readable serialization format.
