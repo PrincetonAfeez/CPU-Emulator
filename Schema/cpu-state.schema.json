@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cpu-state.schema.json",
+  "title": "CHIP-8 CPU State",
+  "description": "Schema for the JSON snapshot returned by CPU.snapshot().",
+  "type": "object",
+  "required": [
+    "pc",
+    "i",
+    "v",
+    "stack",
+    "delay_timer",
+    "sound_timer",
+    "cycles",
+    "awaiting_key"
+  ],
+  "properties": {
+    "pc": { "$ref": "#/$defs/address" },
+    "i": { "$ref": "#/$defs/address" },
+    "v": { "$ref": "#/$defs/registers" },
+    "stack": { "$ref": "#/$defs/stack" },
+    "delay_timer": { "$ref": "#/$defs/byte" },
+    "sound_timer": { "$ref": "#/$defs/byte" },
+    "cycles": { "type": "integer", "minimum": 0 },
+    "awaiting_key": { "type": "boolean" },
+    "quirks": { "$ref": "#/$defs/quirks" },
+    "memory": {
+      "type": "object",
+      "required": ["start", "bytes"],
+      "properties": {
+        "start": { "$ref": "#/$defs/address" },
+        "bytes": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-fA-F]{2})*$",
+          "description": "A hexadecimal string containing zero or more bytes."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "byte": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "address": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4095
+    },
+    "registers": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/byte" }
+    },
+    "stack": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/address" }
+    },
+    "quirks": {
+      "type": "object",
+      "required": [
+        "name",
+        "shift_uses_vy",
+        "load_store_increment_i",
+        "draw_wrap",
+        "logic_resets_flag"
+      ],
+      "properties": {
+        "name": { "type": "string", "enum": ["classic", "modern"] },
+        "shift_uses_vy": { "type": "boolean" },
+        "load_store_increment_i": { "type": "boolean" },
+        "draw_wrap": { "type": "boolean" },
+        "logic_resets_flag": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

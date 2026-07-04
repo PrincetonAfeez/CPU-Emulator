@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trace-header.schema.json",
+  "title": "CHIP-8 Trace Header",
+  "description": "Schema for the first JSON line in a chip8-trace-v2 trace file.",
+  "type": "object",
+  "required": ["format", "rom_sha256", "quirks"],
+  "properties": {
+    "format": { "const": "chip8-trace-v2" },
+    "rom_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "quirks": {
+      "type": "object",
+      "required": [
+        "name",
+        "shift_uses_vy",
+        "load_store_increment_i",
+        "draw_wrap",
+        "logic_resets_flag"
+      ],
+      "properties": {
+        "name": { "type": "string", "enum": ["classic", "modern"] },
+        "shift_uses_vy": { "type": "boolean" },
+        "load_store_increment_i": { "type": "boolean" },
+        "draw_wrap": { "type": "boolean" },
+        "logic_resets_flag": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

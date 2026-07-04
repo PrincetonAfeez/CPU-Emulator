@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trace-record.schema.json",
+  "title": "CHIP-8 Trace Record",
+  "description": "Schema for each execution-record JSON line after the trace header.",
+  "type": "object",
+  "required": [
+    "sequence",
+    "pc",
+    "opcode",
+    "before_pc",
+    "after_pc",
+    "cycles",
+    "v",
+    "i",
+    "delay_timer",
+    "sound_timer",
+    "stack",
+    "awaiting_key",
+    "previous_hash",
+    "hash"
+  ],
+  "properties": {
+    "sequence": { "type": "integer", "minimum": 0 },
+    "pc": { "$ref": "#/$defs/address" },
+    "opcode": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "before_pc": { "$ref": "#/$defs/address" },
+    "after_pc": { "$ref": "#/$defs/address" },
+    "cycles": { "type": "integer", "minimum": 1 },
+    "v": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/byte" }
+    },
+    "i": { "$ref": "#/$defs/address" },
+    "delay_timer": { "$ref": "#/$defs/byte" },
+    "sound_timer": { "$ref": "#/$defs/byte" },
+    "stack": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/address" }
+    },
+    "awaiting_key": { "type": "boolean" },
+    "previous_hash": { "$ref": "#/$defs/sha256" },
+    "hash": { "$ref": "#/$defs/sha256" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "byte": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "address": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4095
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
